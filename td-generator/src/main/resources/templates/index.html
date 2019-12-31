@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>td-generator代码生成器</title>
+    <!-- 引入样式 -->
+    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+    <style>
+        [v-cloak] {
+            display: none;
+        }
+        .el-tree--highlight-current .el-tree-node.is-current>.el-tree-node__content{
+            background-color: #9fa9b4;
+        }
+    </style>
+</head>
+<body>
+<div id="app" v-cloak>
+
+    <el-container>
+        <el-header id="header-css">
+            <el-alert
+                    title="欢迎使用td-generator代码生成器"
+                    type="info"
+                    :closable="false"
+                    show-icon
+                    description="这是一款基于springboot,mybatis的代码生成器,可生成多表关联,查看更多详情请点击操作说明"
+            >
+            </el-alert>
+        </el-header>
+        <el-container :style="containercss">
+            <el-aside width="1500px">
+                <el-select v-model="mainTableName" style="width: 200px;" v-if="mainTable[0].children.length==0" filterable placeholder="请输入表名">
+                    <el-option v-for="item in tables" :label="item" :value="item">
+                    </el-option>
+                </el-select>
+                <br>
+                <br>
+                <el-button v-on:click="queryTable(mainTableName,1)" v-if="mainTable[0].children.length==0" type="primary">插入主表</el-button>
+                <el-button v-on:click="makeDialogVisible=true" v-if="mainTable[0].children.length>0"  type="primary">生成</el-button>
+                <el-button v-on:click="download" v-if="showDownload" type="primary">下载</el-button>
+                <el-button v-on:click="clearData" type="primary">清空</el-button>
+                <el-button type="primary" v-on:click="operateDetail">操作说明</el-button>
+
+                <br>
+                <br>
+                <el-tree
+                        style="width: 300px;"
+                        v-if="mainTable[0].children.length>0"
+                        :data="mainTable"
+                        node-key="id"
+                        default-expand-all
+                        :highlight-current="true"
+                        @node-click="handleNodeChange"
+                        :expand-on-click-node="false">
+                  <span class="custom-tree-node" slot-scope="{ node, data }">
+                    <span>{{ node.label }}</span>
+                    <span v-if="node.id!=1" >
+                      <el-button
+                              type="text"
+                              size="mini"
+                              @click="() => append(node,data)">
+                        <span style="color: white;">join</span>
+                      </el-button>
+                    </span>
+                  </span>
+                </el-tree>
+            </el-aside>
+            <el-main>
+                <el-card v-show="currentField!=''"  class="box-card" style="width: 300px;">
+                    <div slot="header" class="clearfix">
+                        <span>字段详情</span>
+                    </div>
+                    <div>
+                        <br>
+                        字段别名: <el-input @input="changeInput" v-model="currentField.javaColumnName"  style="width: 150px;"></el-input>
+                        <br>
+                        数据表字段类型: {{currentField.dataType}}
+                        <br>
+                        java字段类型:{{currentField.javaDataType}}
+                        <br>
+                        是否主键: {{currentField.columnKey == 'PRI' ? '是' : '否'}}
+                        <br>
+                        是否自增: {{currentField.extra == 'auto_increment' ? '是' : '否'}}
+                        <br>
+                        字段注释: {{currentField.columnComment}}
+                        <br>
+                    </div>
+                </el-card>
+                <el-dialog
+                        title="join"
+                        :visible.sync="dialogVisible"
+                        width="45%"
+                        :before-close="handleClose"
+                        :close-on-click-modal="false"
+                        :close-on-press-escape="false"
+                >
+                    <el-select v-model="joinTableName" style="width: 150px;" filterable placeholder="请输入表名">
+                        <el-option
+                                v-for="item in tables"
+                                :label="item"
+                                :value="item">
+                        </el-option>
+                    </el-select>
+
+                    <el-button v-on:click="queryTable(joinTableName,2)" type="primary">插入表</el-button>
+                    <br>
+                    <br>
+                    主表键：{{currentField.tableName}}.{{currentField.columnName}}
+                    从表键：
+                    <el-select v-model="chooseJoinField" placeholder="请选择从表键">
+                        <el-option
+                                v-for="item in joinTableOri"
+                                :label="item.columnName"
+                                :value="item.id">
+                        </el-option>
+                    </el-select>
+                    <br>
+                    <br>
+                    <el-transfer
+                            filterable
+                            filter-placeholder="请输入字段名"
+                            :titles="['选择需要的字段', '已选字段']"
+                            v-model="chooseJoins"
+                            :data="joinTable">
+                    </el-transfer>
+
+                    <span slot="footer" class="dialog-footer">
+            <el-button @click="handleClose">取 消</el-button>
+            <el-button type="primary" @click="confirmJoin">确 定</el-button>
+        </span>
+                </el-dialog>
+
+                <el-dialog
+                        title="make"
+                        :visible.sync="makeDialogVisible"
+                        width="45%"
+                        :close-on-click-modal="false"
+                        :close-on-press-escape="false"
+                >
+                    <div>
+                        entity类默认上级包名为:entity,
+                        <br>
+                        controller类默认上级包名为:controller,
+                        <br>
+                        service类默认上级包名为:service,
+                        <br>
+                        mapper类默认上级包名为:mapper,
+                        <br>
+                        前缀包名自定义，如com.td.generator.entity,com.td.generator.controller
+                    </div>
+                    <el-input v-model="result.packageName" style="width: 200px;" placeholder="输入包名:如com.td.generator"></el-input>
+                    <el-input v-model="result.className" style="width: 200px;" placeholder="请输入类名:如Demo"></el-input>
+
+                    <span slot="footer" class="dialog-footer">
+            <el-button @click="makeDialogVisible=false">取 消</el-button>
+            <el-button type="primary" @click="confirmMake">确 定</el-button>
+        </span>
+                </el-dialog>
+
+            </el-main>
+        </el-container>
+    </el-container>
+
+</div>
+
+
+</body>
+<script src="https://unpkg.com/vue/dist/vue.js"></script>
+<script src="https://unpkg.com/element-ui/lib/index.js"></script>
+<script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+<script src="https://cdn.bootcss.com/lodash.js/4.17.10/lodash.core.js"></script>
+<script src="https://cdn.bootcss.com/jquery/3.3.1/jquery.min.js"></script>
+<script>
+    axios.defaults.headers.post['Content-Type'] = 'application/json';
+    var v = new Vue({
+        el: "#app",
+        data: {
+            mainTableName: "",
+            dialogVisible:false,
+            joinTableName:"",
+            mainTable: [{
+                id: 0,
+                label: '',
+                children: []
+            }],
+            mainTableOri:[],
+            joinTable:[],
+            joinTableOri:[],
+            currentField:"",
+            currentData:"",
+            chooseJoinField:"",
+            chooseJoins:[],
+            result:{
+                packageName:"",
+                className:"",
+                tableName:"",
+                tableSubName:"",
+                primaryKey:"",
+                primaryKeyOri:"",
+                primaryKeyType:"",
+                primaryKeyIsAuto:"",
+                otherFieldNum:0,
+                joinTables:[],
+                fields:[]
+            },
+            makeDialogVisible:false,
+            showDownload:false,
+            tables:[],
+            containercss:""
+        },
+        mounted(){
+            axios.get("/gencode/index/getTables").then((res)=>{
+                if(res.data.success){
+                    v.tables = res.data.value;
+                }else{
+                    v.$message.error(res.data.msg);
+                }
+            })
+            let clientHeight = window.innerHeight;
+            let headerHeight = document.getElementById("header-css").offsetHeight;
+            this.containercss = "height: " + (clientHeight - headerHeight - 20) + "px; border: 1px solid #eee;margin-top:5px";
+        },
+        methods: {
+            operateDetail(){
+                window.open("https://github.com/tudedong/generator-main");
+            },
+            clearData(){
+                var that=this;
+                this.$confirm('确定要清空当前操作的表吗？', '提示', {
+                    confirmButtonText: '确定',
+                    cancelButtonText: '取消',
+                    type: 'warning'
+                }).then(() => {
+                    that.mainTableName="";
+                    that.mainTable=[{
+                        id: 0,
+                        label: '',
+                        children: []
+                    }];
+                    that.mainTableOri=[];
+                    that.currentField="";
+                    that.result={
+                        packageName:"",
+                        className:"",
+                        tableName:"",
+                        tableSubName:"",
+                        primaryKey:"",
+                        primaryKeyOri:"",
+                        primaryKeyType:"",
+                        primaryKeyIsAuto:"",
+                        otherFieldNum:0,
+                        joinTables:[],
+                        fields:[]
+                    };
+                    that.result.joinTables=[];
+                    that.result.fields=[];
+                    v.showDownload=false;
+                })
+
+            },
+            download(){
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', "/gencode/index/download", true);        // 也可以使用POST方式，根据接口
+                xhr.responseType = "blob";    // 返回类型blob
+                // 定义请求完成的处理函数，请求前也可以增加加载框/禁用下载按钮逻辑
+                xhr.onload = function () {
+                    // 请求完成
+                    if (this.status === 200) {
+                        // 返回200
+                        var blob = this.response;
+                        var reader = new FileReader();
+                        reader.readAsDataURL(blob);    // 转换为base64，可以直接放入a表情href
+                        reader.onload = function (e) {
+                            // 转换完成，创建一个a标签用于下载
+                            var a = document.createElement('a');
+                            a.download = v.result.className+'-TdGenerator.zip';
+                            a.href = e.target.result;
+                            $("body").append(a);    // 修复firefox中无法触发click
+                            a.click();
+                            $(a).remove();
+                        }
+                    } else {
+                        v.$message.error("下载失败");
+                    }
+                };
+                xhr.send();
+            },
+            changeInput(){
+                var obj=_.find(v.result.fields,(n)=>{
+                    return n.id==v.currentField.id
+                })
+                obj.name=v.currentField.javaColumnName;
+            },
+            confirmMake(){
+                if(!this.result.packageName){
+                    v.$message.error("请输入包名");
+                    return;
+                }
+                if(!this.result.className){
+                    v.$message.error("请输入类名");
+                    return;
+                }
+                let json = JSON.stringify(this.result);
+                axios.post("/gencode/index/genCode",json).then((res)=>{
+                    if(res.data.success){
+                        this.$message({
+                            message: '生成成功！',
+                            type: 'success'
+                        });
+                        v.showDownload=true;
+                    }else{
+                        v.$message.error(res.data.msg);
+                    }
+                })
+                this.makeDialogVisible=false;
+            },
+            handleClose(){
+                this.dialogVisible=false;
+                this.chooseJoinField="";
+                this.currentData="";
+                this.joinTableOri=[];
+                this.joinTable=[];
+                this.joinTableName="";
+                this.chooseJoins=[];
+            },
+            confirmJoin(){
+                if(!this.chooseJoinField){
+                    v.$message.error("请选择从表键");
+                    return;
+                }
+                if(this.chooseJoins.length==0){
+                    v.$message.error("请选择需要的字段");
+                    return;
+                }
+
+                var obj=_.find(this.joinTableOri,(n)=>{
+                    return n.id==v.chooseJoinField;
+                })
+                var has=_.find(this.result.joinTables,(n)=>{
+                    return n.tableSubName==obj.javaTableName;
+                });
+                var suffix="";
+                if(has){
+                    suffix=this.result.joinTables.length;
+                }
+                this.result.joinTables.push({
+                    tableName:obj.tableName,
+                    tableSubName:obj.javaTableName+suffix,
+                    joinField:obj.columnName,
+                    tableJoinName:v.currentField.javaTableName,
+                    tableJoinField:v.currentField.columnName
+                })
+
+                _.forEach(this.chooseJoins,(n)=>{
+
+                    obj=_.find(v.joinTableOri,(m)=>{
+                        return n==m.id;
+                    })
+                    obj.id=obj.id+v.createRandomId();
+                    v.result.fields.push({
+                        tableField:obj.javaTableName+suffix+"."+obj.columnName,
+                        name:obj.javaColumnName,
+                        originalField:obj.columnName,
+                        javaType:obj.javaDataType,
+                        comment:obj.columnComment,
+                        isAuto:obj.extra,
+                        isMainField:"no",
+                        id:obj.id
+                    })
+
+
+                    const newChild = {id: obj.id, label: obj.columnName, children: []};
+                    if (!v.currentData.children) {
+                        v.$set(v.currentData, 'children', []);
+                    }
+                    v.currentData.children.push(newChild);
+                    v.mainTableOri.push(obj);
+
+                    v.result.otherFieldNum++;
+
+                })
+
+
+                this.handleClose();
+            },
+            handleNodeChange(data){
+                if(data.id==0){
+                    v.currentField="";
+                    return;
+                }
+                var obj=_.find(v.mainTableOri,(n)=>{
+                    return data.id==n.id;
+                })
+                v.currentField=obj;
+            },
+            queryTable(tableName,type) {
+                if (!tableName) {
+                    this.$message.error('请输入表名!');
+                    return;
+                }
+                axios.get('/gencode/index/getTableInfo/' + tableName).then(function (response) {
+                    var data = response.data;
+                    if (data.success) {
+                        if (!data.value || data.value.length == 0) {
+                            v.$message.error("无该数据表");
+                        } else {
+                            var tables = data.value;
+                            if(type==1){
+                                v.mainTableOri=tables;
+                                v.mainTable[0].label = tables[0].tableName;
+                                var array = [];
+                                _.forEach(tables, (n) => {
+                                    var obj = {
+                                        id: n.id,
+                                        label: n.columnName
+                                    }
+                                    array.push(obj);
+                                    if(n.columnKey == 'PRI'){
+                                        v.result.primaryKeyOri=n.columnName;
+                                        v.result.primaryKey=n.javaColumnName;
+                                        v.result.primaryKeyType=n.javaDataType;
+                                        v.result.primaryKeyIsAuto=n.extra;
+                                    }
+                                    v.result.fields.push({
+                                        tableField:n.javaTableName+"."+n.columnName,
+                                        name:n.javaColumnName,
+                                        originalField:n.columnName,
+                                        javaType:n.javaDataType,
+                                        comment:n.columnComment,
+                                        isAuto:n.extra,
+                                        isMainField:"yes",
+                                        id:n.id
+                                    })
+                                })
+                                v.mainTable[0].children = array;
+                                v.result.tableName=tables[0].tableName;
+                                v.result.tableSubName=tables[0].javaTableName;
+                            }else{
+                                v.joinTable=[];
+                                _.forEach(tables, (n) => {
+                                    v.joinTable.push({
+                                        label: n.columnName,
+                                        key: n.id
+                                    });
+                                })
+                                v.joinTableOri=tables;
+                            }
+                        }
+                    } else {
+                        v.$message.error(data.msg);
+                    }
+                })
+
+            },
+            append(node,data) {
+                this.dialogVisible=true;
+                var obj=_.find(v.mainTableOri,(n)=>{
+                    return node.id==n.id;
+                })
+                v.currentField=obj;
+                v.currentData=data;
+            },
+            createRandomId() {
+                return (Math.random()*10000000).toString(16).substr(0,4)+'-'+(new Date()).getTime()+'-'+Math.random().toString().substr(2,5);
+            }
+        }
+    })
+
+</script>
+</html>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+
+<mapper namespace="com.td.generator.mapper.TableMapper" >
+
+	<select id="getTables" resultType="java.lang.String">
+		select table_name as tableNames from information_schema.TABLES where TABLE_SCHEMA=(select database())
+	</select>
+
+    <select id="getTableInfo" resultType="com.td.generator.utils.MysqlStructure">
+      select
+      TABLE_NAME as tableName,
+	  COLUMN_NAME as columnName,
+	  DATA_TYPE as dataType,
+	  COLUMN_KEY as columnKey,
+	  EXTRA as extra,
+	  COLUMN_COMMENT as columnComment,
+	  ORDINAL_POSITION as id
+      from information_schema.COLUMNS
+      where TABLE_SCHEMA = (select database()) and TABLE_NAME=#{tableName}
+    </select>
+
+</mapper>
